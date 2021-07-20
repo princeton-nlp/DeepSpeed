@@ -29,7 +29,16 @@ __global__ void attn_softmax(float* vals,
 
     int data_offset = batch * (gridDim.y * block_width) + row * block_width +
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
-    int mask_offset = batch * seq_length;
+
+    // For attn_mask as (batch, 1, 1, to_seq)
+    // int mask_offset = batch * seq_length;
+
+    // For attn_mask as (batch, 1, from_seq, to_seq)
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
+    int mask_offset = batch * (4*seq_length) * seq_length + src_idx * seq_length;
+
+    // For attn_mask as (batch, heads, from_seq, to_seq)
+    // int mask_offset = data_offset;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
@@ -160,7 +169,16 @@ __global__ void attn_softmax(__half* vals,
 
     int data_offset = batch * (gridDim.y * block_width) + row * block_width +
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
-    int mask_offset = batch * seq_length;
+
+    // For attn_mask as (batch, 1, 1, to_seq)
+    // int mask_offset = batch * seq_length;
+
+    // For attn_mask as (batch, 1, from_seq, to_seq)
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
+    int mask_offset = batch * (4*seq_length) * seq_length + src_idx * seq_length;
+
+    // For attn_mask as (batch, heads, from_seq, to_seq)
+    // int mask_offset = data_offset;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
