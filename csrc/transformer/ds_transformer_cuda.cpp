@@ -585,6 +585,13 @@ void BertTransformerLayer<T>::SetSeqLength(int seq_len)
     _attn_context.SetConfig(_hidden_size / _heads, _seq_length, _seq_length);
 }
 
+
+template <typename T>
+void BertTransformerLayer<T>::SetAttnMaskSize(int attn_mask_src_len, int attn_mask_bsz_len)
+{
+    _softmax.SetAttnMaskSize(attn_mask_src_len, attn_mask_bsz_len);
+}
+
 template <typename T>
 int create_transformer_layer(int layer_id,
                              int batch_size,
@@ -709,6 +716,11 @@ std::vector<torch::Tensor> ds_transformer_forward(int layer_id,
         seq_len = input.size(1);
         layer->SetSeqLength(seq_len);
     }
+
+    int attn_mask_src_len = input_mask.size(2);
+    int attn_mask_bsz_len = input_mask.size(0);
+    AT_ASSERTM(input_mask.size(1) == 1, "Input mask (bsz, heads, from_seq, to_seq) must have size 1 along heads axis.");
+    layer->SetAttnMaskSize(attn_mask_src_len, attn_mask_bsz_len);
 
     auto workspace = torch::empty({get_workspace_size<T>(bsz,
                                                          seq_len,

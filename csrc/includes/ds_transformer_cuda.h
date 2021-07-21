@@ -134,6 +134,7 @@ public:
     inline int GetIntermediateSize() const { return _intermediate_size; }
 
     void SetSeqLength(int seq_len);
+    void SetAttnMaskSize(int  attn_mask_src_len, int attn_mask_bsz_len);
     inline int GetHiddenSize() const { return _hidden_size; }
     void SetTrainingMode(bool training);
     inline bool IsTrainingMode() const { return _training; }

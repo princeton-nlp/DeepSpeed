@@ -10,7 +10,9 @@ __global__ void attn_softmax(float* vals,
                              const float* attn_mask,
                              int heads,
                              int seq_length,
-                             int iterations)
+                             int iterations,
+                             int attn_mask_src_len,
+                             int attn_mask_bsz_len)
 {
     __shared__ float partialSum[MAX_WARP_NUM];
 
@@ -30,15 +32,10 @@ __global__ void attn_softmax(float* vals,
     int data_offset = batch * (gridDim.y * block_width) + row * block_width +
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
 
-    // For attn_mask as (batch, 1, 1, to_seq)
-    // int mask_offset = batch * seq_length;
-
-    // For attn_mask as (batch, 1, from_seq, to_seq)
-    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
-    int mask_offset = batch * (4*seq_length) * seq_length + src_idx * seq_length;
-
-    // For attn_mask as (batch, heads, from_seq, to_seq)
-    // int mask_offset = data_offset;
+    // For attn_mask as (attn_mask_bsz_len, 1, attn_mask_src_len, sequence_length)
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % attn_mask_src_len;
+    int bsz_idx = batch % attn_mask_bsz_len;
+    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx) * seq_length;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
@@ -149,7 +146,9 @@ __global__ void attn_softmax(__half* vals,
                              const __half* attn_mask,
                              int heads,
                              int seq_length,
-                             int iterations)
+                             int iterations,
+                             int attn_mask_src_len,
+                             int attn_mask_bsz_len)
 {
 #if __CUDA_ARCH__ >= 700
     __shared__ float partialSum[MAX_WARP_NUM];
@@ -170,15 +169,10 @@ __global__ void attn_softmax(__half* vals,
     int data_offset = batch * (gridDim.y * block_width) + row * block_width +
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
 
-    // For attn_mask as (batch, 1, 1, to_seq)
-    // int mask_offset = batch * seq_length;
-
-    // For attn_mask as (batch, 1, from_seq, to_seq)
-    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
-    int mask_offset = batch * (4*seq_length) * seq_length + src_idx * seq_length;
-
-    // For attn_mask as (batch, heads, from_seq, to_seq)
-    // int mask_offset = data_offset;
+    // For attn_mask as (attn_mask_bsz_len, 1, attn_mask_src_len, sequence_length)
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % attn_mask_src_len;
+    int bsz_idx = batch % attn_mask_bsz_len;
+    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx) * seq_length;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
@@ -305,7 +299,7 @@ __global__ void attn_softmax(__half* vals,
 }
 
 template <typename T>
-void launch_attn_softmax(T*, const T*, int, int, int, cudaStream_t);
+void launch_attn_softmax(T*, const T*, int, int, int, int, cudaStream_t);
 
 template <>
 void launch_attn_softmax<float>(float* vals,
@@ -313,6 +307,8 @@ void launch_attn_softmax<float>(float* vals,
                                 int batch_size,
                                 int heads,
                                 int sequence_length,
+                                int attn_mask_src_len,
+                                int attn_mask_bsz_len,
                                 cudaStream_t stream)
 {
     const int threads = 128;
@@ -333,22 +329,22 @@ void launch_attn_softmax<float>(float* vals,
 
     if (sequence_length <= 8)
         attn_softmax<2, (threads / 2), 2>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 16)
         attn_softmax<4, (threads / 4), 4>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 32)
         attn_softmax<8, (threads / 8), 8>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 64)
         attn_softmax<16, (threads / 16), 16>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 128)
         attn_softmax<32, (threads / 32), 32>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 256)
         attn_softmax<32, (threads / 64), 64>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else {
         const int threads = 256;
         block_compute_size =
@@ -366,10 +362,10 @@ void launch_attn_softmax<float>(float* vals,
                                                      : MAX_THREAD_ITERATIONS);
         if (sequence_length <= 512)
             attn_softmax<32, (threads / 128), 128><<<grid_dim, block_dim, 0, stream>>>(
-                vals, attn_mask, heads, seq_length4, iterations);
+                vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
         else if (sequence_length < (MAX_THREADS * MAX_THREAD_ITERATIONS * 4))
             attn_softmax<32, 1, 128><<<grid_dim, block_dim, 0, stream>>>(
-                vals, attn_mask, heads, seq_length4, iterations);
+                vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
         else
             throw std::runtime_error(
                 "Unsupport Seq_Length! Check the restriction of the max_threads and "
@@ -383,6 +379,8 @@ void launch_attn_softmax<__half>(__half* vals,
                                  int batch_size,
                                  int heads,
                                  int sequence_length,
+                                 int attn_mask_src_len,
+                                 int attn_mask_bsz_len,
                                  cudaStream_t stream)
 {
     const int threads = 128;
@@ -404,22 +402,22 @@ void launch_attn_softmax<__half>(__half* vals,
 
     if (sequence_length <= 8)
         attn_softmax<2, (threads / 2), 2>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 16)
         attn_softmax<4, (threads / 4), 4>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 32)
         attn_softmax<8, (threads / 8), 8>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 64)
         attn_softmax<16, (threads / 16), 16>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 128)
         attn_softmax<32, (threads / 32), 32>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else if (sequence_length <= 256)
         attn_softmax<32, (threads / 64), 64>
-            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations);
+            <<<grid_dim, block_dim, 0, stream>>>(vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
     else {
         const int threads = 256;
         block_compute_size =
@@ -437,10 +435,10 @@ void launch_attn_softmax<__half>(__half* vals,
                                                      : MAX_THREAD_ITERATIONS);
         if (sequence_length <= 512)
             attn_softmax<32, (threads / 128), 128><<<grid_dim, block_dim, 0, stream>>>(
-                vals, attn_mask, heads, seq_length4, iterations);
+                vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
         else if (sequence_length < (MAX_THREADS * MAX_THREAD_ITERATIONS * 4))
             attn_softmax<32, 1, 128><<<grid_dim, block_dim, 0, stream>>>(
-                vals, attn_mask, heads, seq_length4, iterations);
+                vals, attn_mask, heads, seq_length4, iterations, attn_mask_src_len, attn_mask_bsz_len);
         else
             throw std::runtime_error(
                 "Unsupport Seq_Length! Check the restriction of the max_threads and "

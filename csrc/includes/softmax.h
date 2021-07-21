@@ -16,6 +16,8 @@ public:
         size_t batchSize;
         size_t heads;
         size_t seq_length;
+        size_t attn_mask_src_len;
+        size_t attn_mask_bsz_len;
         size_t prob_depth;
         float temprature;
         bool mem_alloc;
@@ -36,7 +38,9 @@ public:
 
     void Forward(int bsz, T* vals, const T* attn_mask, cudaStream_t& stream)
     {
-        launch_attn_softmax<T>(vals, attn_mask, bsz, config_.heads, config_.seq_length, stream);
+        launch_attn_softmax<T>(vals, attn_mask, bsz, config_.heads, config_.seq_length,
+                               config_.attn_mask_src_len, config_.attn_mask_bsz_len,
+                               stream);
     }
 
     void Backward(int bsz, T* out_grad, const T* soft_out, cudaStream_t stream)
@@ -54,6 +58,12 @@ public:
     inline size_t GetSeqLength() const { return config_.seq_length; }
 
     inline void SetSeqLength(size_t seq_len) { config_.seq_length = seq_len; }
+
+    inline void SetAttnMaskSize(size_t src_len, size_t bsz_len) {
+        config_.attn_mask_src_len = src_len;
+        config_.attn_mask_bsz_len = bsz_len;
+    }
+
 
 private:
     Config config_;
