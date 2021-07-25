@@ -33,9 +33,9 @@ __global__ void attn_softmax(float* vals,
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
 
     // For attn_mask as (attn_mask_bsz_len, 1, attn_mask_src_len, sequence_length)
-    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % attn_mask_src_len;
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
     int bsz_idx = batch % attn_mask_bsz_len;
-    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx) * seq_length;
+    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx % attn_mask_src_len) * seq_length;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
@@ -170,9 +170,9 @@ __global__ void attn_softmax(__half* vals,
                       (threadIdx.x / max_threads_in_sequence) * seq_length;
 
     // For attn_mask as (attn_mask_bsz_len, 1, attn_mask_src_len, sequence_length)
-    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % attn_mask_src_len;
+    int src_idx = (row * blockStride + (threadIdx.x / max_threads_in_sequence)) % (4*seq_length);
     int bsz_idx = batch % attn_mask_bsz_len;
-    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx) * seq_length;
+    int mask_offset = (bsz_idx * attn_mask_src_len + src_idx % attn_mask_src_len) * seq_length;
 
     int wid = threadIdx.x >> 5;
     int lane = threadIdx.x & 0x1f;
@@ -299,7 +299,7 @@ __global__ void attn_softmax(__half* vals,
 }
 
 template <typename T>
-void launch_attn_softmax(T*, const T*, int, int, int, int, cudaStream_t);
+void launch_attn_softmax(T*, const T*, int, int, int, int, int, cudaStream_t);
 
 template <>
 void launch_attn_softmax<float>(float* vals,
